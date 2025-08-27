@@ -13,6 +13,11 @@ st.set_page_config(
 st.title("🤖 Chatbot OpenRouter")
 st.markdown("Powered by GLM-4.5-Air")
 
+SYSTEM_PROMPT = st.secrets.get("SYSTEM_PROMPT", "").strip()
+
+
+
+
 # Sidebar para configurações
 with st.sidebar:
     st.header("⚙️ Configurações")
@@ -61,9 +66,11 @@ def call_openrouter_api(messages, api_key):
     response = requests.post(url, headers=headers, data=json.dumps(data))
     return response
 
-# Inicializar mensagens no session state
+# inicia o histórico e injeta o system prompt só uma vez
 if "messages" not in st.session_state:
     st.session_state.messages = []
+    if SYSTEM_PROMPT:
+        st.session_state.messages.append({"role": "system", "content": SYSTEM_PROMPT})
 
 # Exibir mensagens do histórico
 for message in st.session_state.messages:
