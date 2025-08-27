@@ -9,68 +9,150 @@ st.set_page_config(
     layout="centered"
 )
 
+SYSTEM_PROMPT = st.secrets.get("SYSTEM_PROMPT", "").strip()
+
+# Inicializar mensagens no session state PRIMEIRO
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
 # Título principal
 st.title("🤖 Chatbot OpenRouter")
 st.markdown("Powered by GLM-4.5-Air")
 
-SYSTEM_PROMPT = st.secrets.get("SYSTEM_PROMPT", "").strip()
-
-
-
-
 # Sidebar para configurações
 with st.sidebar:
     st.header("⚙️ Configurações")
-    
+
     # Input para API key
     api_key = st.text_input(
         "OpenRouter API Key",
         type="password",
         help="Insira sua chave API do OpenRouter"
     )
-    
+
     st.markdown("---")
-    
-    # Informações sobre o modelo
-    st.markdown("**Modelo:** z-ai/glm-4.5-air:free")
+
+    # Seleção de modelos
+    SHORT_MODELS = [
+        ("GLM-4.5-Air (free)", "z-ai/glm-4.5-air:free"),
+        ("GLM-4.5",           "z-ai/glm-4.5"),
+    ]
+    labels_r = [n for n, _ in SHORT_MODELS] + ["Custom…"]
+    label_to_slug_r = {n: s for n, s in SHORT_MODELS}
+
+    default_slug_r = "z-ai/glm-4.5-air:free"
+    default_idx_r = next((i for i, (_, s) in enumerate(
+        SHORT_MODELS) if s == default_slug_r), 0)
+
+    chosen_label_r = st.radio(
+        "Modelo", labels_r, index=default_idx_r, horizontal=True)
+    if chosen_label_r == "Custom…":
+        model = st.text_input(
+            "Slug do modelo (OpenRouter)", value=default_slug_r)
+    else:
+        model = label_to_slug_r[chosen_label_r]
+
     st.markdown("**Provider:** OpenRouter.ai")
-    
+
     # Botão para limpar conversa
     if st.button("🗑️ Limpar Conversa", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
 
+    st.markdown("---")
+    st.subheader("💾 Exportar Conversa")
+
+    # Botão de download da conversa
+    if st.session_state.messages:
+        from datetime import datetime
+
+        # Gerar conteúdo da conversa com codificação segura
+        try:
+            conversation_lines = []
+            conversation_lines.append("=== CONVERSA CHATBOT OPENROUTER ===")
+            conversation_lines.append(
+                f"Exportado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+            conversation_lines.append(f"Modelo utilizado: {model}")
+            conversation_lines.append("=" * 40)
+            conversation_lines.append("")
+
+            for i, message in enumerate(st.session_state.messages, 1):
+                role = "USUARIO" if message["role"] == "user" else "ASSISTENTE"
+                conversation_lines.append(f"[{i}] {role}:")
+                # Sanitizar o conteúdo removendo caracteres problemáticos
+                content = str(message['content']).replace(
+                    '\r', '').replace('\x00', '')
+                conversation_lines.append(content)
+                conversation_lines.append("")
+                conversation_lines.append("-" * 40)
+                conversation_lines.append("")
+
+            conversation_content = "\n".join(conversation_lines)
+
+            # Nome do arquivo seguro
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"conversa_chatbot_{timestamp}.txt"
+
+            st.download_button(
+                label="📄 Baixar Conversa (TXT)",
+                data=conversation_content.encode('utf-8'),
+                file_name=filename,
+                mime="text/plain; charset=utf-8",
+                use_container_width=True,
+                help="Baixa toda a conversa atual em formato de texto"
+            )
+
+        except Exception as e:
+            st.error(f"Erro ao preparar arquivo para download: {str(e)}")
+
+        # Mostrar estatísticas da conversa
+        total_messages = len(st.session_state.messages)
+        user_messages = sum(
+            1 for msg in st.session_state.messages if msg["role"] == "user")
+        assistant_messages = total_messages - user_messages
+
+        st.info(f"""
+        **Estatísticas da Conversa:**
+        - Total de mensagens: {total_messages}
+        - Perguntas do usuário: {user_messages}
+        - Respostas do assistente: {assistant_messages}
+        """)
+    else:
+        st.info("Inicie uma conversa para habilitar a exportação.")
+
 # Verificar se a API key foi fornecida
 if not api_key:
     st.warning("Por favor, insira sua API key do OpenRouter no painel lateral.")
-    st.info("Você pode obter uma chave gratuita em [OpenRouter.ai](https://openrouter.ai)")
+    st.info(
+        "Você pode obter uma chave gratuita em [OpenRouter.ai](https://openrouter.ai)")
     st.stop()
 
 # Função para fazer chamada à API usando requests
-def call_openrouter_api(messages, api_key):
+
+
+def call_openrouter_api(messages, api_key, model):
     """Faz chamada para a API do OpenRouter usando requests"""
     url = "https://openrouter.ai/api/v1/chat/completions"
-    
+
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://your-streamlit-app.com",
-        "X-Title": "Streamlit Chatbot"
     }
-    
+
     data = {
-        "model": "z-ai/glm-4.5-air:free",
-        "messages": messages
+        "model": model,
+        "messages": (
+            [{"role": "system", "content": SYSTEM_PROMPT}] if SYSTEM_PROMPT else []
+        ) + messages
     }
-    
-    response = requests.post(url, headers=headers, data=json.dumps(data))
+    response = requests.post(url, headers=headers,
+                             data=json.dumps(data), timeout=30)
     return response
 
-# inicia o histórico e injeta o system prompt só uma vez
+
+# Inicializar mensagens no session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
-    if SYSTEM_PROMPT:
-        st.session_state.messages.append({"role": "system", "content": SYSTEM_PROMPT})
 
 # Exibir mensagens do histórico
 for message in st.session_state.messages:
@@ -81,21 +163,22 @@ for message in st.session_state.messages:
 if prompt := st.chat_input("Digite sua mensagem..."):
     # Adicionar mensagem do usuário ao histórico
     st.session_state.messages.append({"role": "user", "content": prompt})
-    
+
     # Exibir mensagem do usuário
     with st.chat_message("user"):
         st.markdown(prompt)
-    
+
     # Exibir resposta do assistente
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         full_response = ""
-        
+
         try:
             # Fazer chamada para a API usando requests
             with st.spinner("Pensando..."):
-                response = call_openrouter_api(st.session_state.messages, api_key)
-            
+                response = call_openrouter_api(
+                    st.session_state.messages, api_key, model)
+
             if response.status_code == 200:
                 response_data = response.json()
                 full_response = response_data["choices"][0]["message"]["content"]
@@ -104,7 +187,7 @@ if prompt := st.chat_input("Digite sua mensagem..."):
                 error_message = f"Erro na API (Status {response.status_code}): {response.text}"
                 message_placeholder.error(error_message)
                 full_response = error_message
-            
+
         except requests.exceptions.RequestException as e:
             error_message = f"Erro de conexão: {str(e)}"
             message_placeholder.error(error_message)
@@ -117,9 +200,10 @@ if prompt := st.chat_input("Digite sua mensagem..."):
             error_message = f"Erro inesperado: {str(e)}"
             message_placeholder.error(error_message)
             full_response = error_message
-    
+
     # Adicionar resposta do assistente ao histórico
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
+    st.session_state.messages.append(
+        {"role": "assistant", "content": full_response})
 
 # Rodapé informativo
 st.markdown("---")
