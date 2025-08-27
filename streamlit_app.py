@@ -1,6 +1,6 @@
 import streamlit as st
-from openai import OpenAI
-import os
+import requests
+import json
 
 # Configuração da página
 st.set_page_config(
@@ -41,15 +41,25 @@ if not api_key:
     st.info("Você pode obter uma chave gratuita em [OpenRouter.ai](https://openrouter.ai)")
     st.stop()
 
-# Inicializar o cliente OpenAI com OpenRouter
-try:
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=api_key,
-    )
-except Exception as e:
-    st.error(f"Erro ao inicializar cliente: {e}")
-    st.stop()
+# Função para fazer chamada à API usando requests
+def call_openrouter_api(messages, api_key):
+    """Faz chamada para a API do OpenRouter usando requests"""
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://your-streamlit-app.com",
+        "X-Title": "Streamlit Chatbot"
+    }
+    
+    data = {
+        "model": "z-ai/glm-4.5-air:free",
+        "messages": messages
+    }
+    
+    response = requests.post(url, headers=headers, data=json.dumps(data))
+    return response
 
 # Inicializar mensagens no session state
 if "messages" not in st.session_state:
@@ -75,21 +85,29 @@ if prompt := st.chat_input("Digite sua mensagem..."):
         full_response = ""
         
         try:
-            # Fazer chamada para a API
+            # Fazer chamada para a API usando requests
             with st.spinner("Pensando..."):
-                completion = client.chat.completions.create(
-                    extra_body={},
-                    model="z-ai/glm-4.5-air:free",
-                    messages=st.session_state.messages,
-                    stream=False
-                )
+                response = call_openrouter_api(st.session_state.messages, api_key)
             
-            # Extrair resposta
-            full_response = completion.choices[0].message.content
-            message_placeholder.markdown(full_response)
+            if response.status_code == 200:
+                response_data = response.json()
+                full_response = response_data["choices"][0]["message"]["content"]
+                message_placeholder.markdown(full_response)
+            else:
+                error_message = f"Erro na API (Status {response.status_code}): {response.text}"
+                message_placeholder.error(error_message)
+                full_response = error_message
             
+        except requests.exceptions.RequestException as e:
+            error_message = f"Erro de conexão: {str(e)}"
+            message_placeholder.error(error_message)
+            full_response = error_message
+        except json.JSONDecodeError as e:
+            error_message = f"Erro ao processar resposta: {str(e)}"
+            message_placeholder.error(error_message)
+            full_response = error_message
         except Exception as e:
-            error_message = f"Erro ao obter resposta: {str(e)}"
+            error_message = f"Erro inesperado: {str(e)}"
             message_placeholder.error(error_message)
             full_response = error_message
     
