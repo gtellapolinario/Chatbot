@@ -29,7 +29,13 @@ with st.sidebar:
         type="password",
         help="Insira sua chave API do OpenRouter"
     )
-
+    
+    st.markdown("""
+                ##### GT-Medic ®                
+                """)
+    st.write('- 🛠️ [Chave de API](https://openrouter.ai/z-ai/glm-4.5-air:free/api)')
+    st.write('- 🛠️ [Projeto](https://github.com/gtellapolinario/Chatbot/tree/master)')
+    
     st.markdown("---")
 
     # Seleção de modelos
